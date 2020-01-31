@@ -38,7 +38,8 @@ metadata:
   name: queue-proxy
   namespace: knative-serving
 spec:
-  image: gcr.io/knative-releases/knative.dev/serving/cmd/queue@sha256:ee0fd64c6c564f58675045ce289d061d7245186aae274b9a9c5e7ec878dad251
+  #image: gcr.io/knative-releases/knative.dev/serving/cmd/queue@sha256:ee0fd64c6c564f58675045ce289d061d7245186aae274b9a9c5e7ec878dad251
+  image: savita3020/queue-39be6f1d08a095bd076a71d288d295b6
 
 ---
 apiVersion: v1
@@ -255,7 +256,8 @@ data:
 
     # List of repositories for which tag to digest resolving should be skipped
     registriesSkippingTagResolving: "ko.local,dev.local"
-  queueSidecarImage: gcr.io/knative-releases/knative.dev/serving/cmd/queue@sha256:ee0fd64c6c564f58675045ce289d061d7245186aae274b9a9c5e7ec878dad251
+  #queueSidecarImage: gcr.io/knative-releases/knative.dev/serving/cmd/queue@sha256:ee0fd64c6c564f58675045ce289d061d7245186aae274b9a9c5e7ec878dad251
+  queueSidecarImage: savita3020/queue-39be6f1d08a095bd076a71d288d295b6
 kind: ConfigMap
 metadata:
   labels:
@@ -684,7 +686,7 @@ metadata:
   name: activator
   namespace: knative-serving
 spec:
-  maxReplicas: 20
+  maxReplicas: 1
   metrics:
   - resource:
       name: cpu
@@ -740,7 +742,8 @@ spec:
           value: config-observability
         - name: METRICS_DOMAIN
           value: knative.dev/internal/serving
-        image: gcr.io/knative-releases/knative.dev/serving/cmd/activator@sha256:150328fd960b8579a175fbd9dcd16d3196fc5247554df6437f73e08e4b41bbc2
+        #image: gcr.io/knative-releases/knative.dev/serving/cmd/activator@sha256:150328fd960b8579a175fbd9dcd16d3196fc5247554df6437f73e08e4b41bbc2
+        image: savita3020/activator-ecd51ca5034883acbe737fde417a3d86
         livenessProbe:
           httpGet:
             httpHeaders:
@@ -773,6 +776,96 @@ spec:
         securityContext:
           allowPrivilegeEscalation: false
       serviceAccountName: controller
+      terminationGracePeriodSeconds: 300
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: activator
+  namespace: knative-serving
+  labels:
+    knative.dev/release: "v0.12.1"
+spec:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 50%
+  selector:
+    matchLabels:
+      app: activator
+      role: activator
+  template:
+    metadata:
+      labels:
+        app: activator
+        role: activator
+        knative.dev/release: "v0.12.1"
+    spec:
+      serviceAccountName: controller
+      containers:
+        - name: activator
+          # This is the Go import path for the binary that is containerized
+          # and substituted here.
+          image: savita3020/activator-ecd51ca5034883acbe737fde417a3d86
+
+          resources:
+            requests:
+              cpu: 300m
+              memory: 60Mi
+            limits:
+              cpu: 500m
+              memory: 200Mi
+          env:
+            # Run Activator with GC collection when newly generated memory is 500%.
+            - name: GOGC
+              value: "500"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: SYSTEM_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CONFIG_LOGGING_NAME
+              value: config-logging
+            - name: CONFIG_OBSERVABILITY_NAME
+              value: config-observability
+            # TODO(https://github.com/knative/pkg/pull/953): Remove stackdriver specific config
+            - name: METRICS_DOMAIN
+              value: knative.dev/internal/serving
+
+          securityContext:
+            allowPrivilegeEscalation: false
+
+          ports:
+            - name: metrics
+              containerPort: 9090
+            - name: profiling
+              containerPort: 8008
+            - name: http1
+              containerPort: 8012
+            - name: h2c
+              containerPort: 8013
+
+          readinessProbe: &probe
+            httpGet:
+              port: 8012
+              httpHeaders:
+                - name: k-kubelet-probe
+                  value: "activator"
+          livenessProbe: *probe
+      # The activator (often) sits on the dataplane, and may proxy long (e.g.
+      # streaming, websockets) requests.  We give a long grace period for the
+      # activator to "lame duck" and drain outstanding requests before we
+      # forcibly terminate the pod (and outstanding connections).  This value
+      # should be at least as large as the upper bound on the Revision's
+      # timeoutSeconds property to avoid servicing events disrupting
+      # connections.
       terminationGracePeriodSeconds: 300
 ---
 apiVersion: v1
@@ -837,7 +930,8 @@ spec:
           value: config-observability
         - name: METRICS_DOMAIN
           value: knative.dev/serving
-        image: gcr.io/knative-releases/knative.dev/serving/cmd/autoscaler@sha256:3193057da258bbb9a6b8caddcf1924b9b6752877b0fa0940d3393d2492db0b04
+        #image: gcr.io/knative-releases/knative.dev/serving/cmd/autoscaler@sha256:3193057da258bbb9a6b8caddcf1924b9b6752877b0fa0940d3393d2492db0b04
+        image: savita3020/autoscaler-12c0fa24db31956a7cfa673210e4fa13
         livenessProbe:
           httpGet:
             httpHeaders:
@@ -928,7 +1022,8 @@ spec:
           value: config-observability
         - name: METRICS_DOMAIN
           value: knative.dev/internal/serving
-        image: gcr.io/knative-releases/knative.dev/serving/cmd/controller@sha256:69a255299717c92757bfa7067889b449d1816c50e9b6cd709d06436418b9aa24
+        #image: gcr.io/knative-releases/knative.dev/serving/cmd/controller@sha256:69a255299717c92757bfa7067889b449d1816c50e9b6cd709d06436418b9aa24
+        image: savita3020/controller-f6fdb41c6acbc726e29a3104ff2ef720
         name: controller
         ports:
         - containerPort: 9090
@@ -999,7 +1094,8 @@ spec:
           value: config-observability
         - name: METRICS_DOMAIN
           value: knative.dev/serving
-        image: gcr.io/knative-releases/knative.dev/serving/cmd/webhook@sha256:137ddd0c8394eccbba4c73121caabdc551e72f2c2661f60c3c1993b90ffda469
+        #image: gcr.io/knative-releases/knative.dev/serving/cmd/webhook@sha256:137ddd0c8394eccbba4c73121caabdc551e72f2c2661f60c3c1993b90ffda469
+        image: savita3020/webhook-261c6506fca17bc41be50b3461f98f1c
         name: webhook
         ports:
         - containerPort: 9090
@@ -1833,7 +1929,8 @@ spec:
           value: config-observability
         - name: METRICS_DOMAIN
           value: knative.dev/serving
-        image: gcr.io/knative-releases/knative.dev/serving/cmd/autoscaler-hpa@sha256:87242941aa07dfc7d849d83b63b708280e6bd442a871764f2cf301181f6edb5c
+        #image: gcr.io/knative-releases/knative.dev/serving/cmd/autoscaler-hpa@sha256:87242941aa07dfc7d849d83b63b708280e6bd442a871764f2cf301181f6edb5c
+        image: savita3020/autoscaler-hpa-85c0b68178743d74ff7f663a72802ceb
         name: autoscaler-hpa
         ports:
         - containerPort: 9090
@@ -2042,7 +2139,8 @@ spec:
           value: config-observability
         - name: METRICS_DOMAIN
           value: knative.dev/serving
-        image: gcr.io/knative-releases/knative.dev/serving/cmd/networking/istio@sha256:969b7ed9a9f5b408a5e117c3fb358702636661a3f52299e54c77ada885582a73
+        #image: gcr.io/knative-releases/knative.dev/serving/cmd/networking/istio@sha256:969b7ed9a9f5b408a5e117c3fb358702636661a3f52299e54c77ada885582a73
+        image: savita3020/istio-c58c0c8bb8ecc80f800bb788a425ae1d
         name: networking-istio
         ports:
         - containerPort: 9090
